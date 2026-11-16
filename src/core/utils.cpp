@@ -93,6 +93,18 @@ void updateClockTimezone() {
             timeClient.forceUpdate();
         }
         unsigned long utc = timeClient.getEpochTime();
+        if (utc <= 1700000000UL) {
+            configTime(0, 0, "time.google.com", "time.cloudflare.com", "pool.ntp.org");
+            uint32_t t0 = millis();
+            while (millis() - t0 < 2000) {
+                time_t now = time(nullptr);
+                if (now > 1700000000L) {
+                    utc = (unsigned long)now;
+                    break;
+                }
+                delay(100);
+            }
+        }
         if (utc > 1700000000UL) {
             s_appliedOffsetSec = newOffsetSec;
             mqApplyLocalEpoch((time_t)utc + newOffsetSec);
