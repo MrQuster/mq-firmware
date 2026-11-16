@@ -181,6 +181,7 @@ void mqCheckUpdates() {
     String url = "https://api.github.com/repos/MrQuster/mq-firmware/releases/latest";
     if (http.begin(client, url)) {
         http.setUserAgent("MQ-Firmware");
+        http.setTimeout(8000);
         int code = http.GET();
         if (code == 200) {
             String payload = http.getString();
