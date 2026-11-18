@@ -46,7 +46,7 @@ public:
     const char *filepath = "/bruce.conf";
 
     //  Settings
-    int dimmerSet = 60;
+    int dimmerSet = 0;
     int bright = 100;
     bool automaticTimeUpdateViaNTP = true;
     float tmz = 2;

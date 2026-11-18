@@ -14,6 +14,7 @@ JsonDocument BruceConfig::toJson() const {
     setting["themeOnSd"] = theme.fs;
 
     setting["dimmerSet"] = dimmerSet;
+    setting["mqNoDimDefault"] = true;
     setting["bright"] = bright;
     setting["automaticTimeUpdateViaNTP"] = automaticTimeUpdateViaNTP;
     setting["tmz"] = tmz;
@@ -155,7 +156,10 @@ void BruceConfig::fromFile(bool checkFS) {
         log_e("Fail");
     }
 
-    if (!setting["dimmerSet"].isNull()) {
+    if (setting["mqNoDimDefault"].isNull()) {
+        dimmerSet = 0;
+        count++;
+    } else if (!setting["dimmerSet"].isNull()) {
         dimmerSet = setting["dimmerSet"].as<int>();
     } else {
         count++;

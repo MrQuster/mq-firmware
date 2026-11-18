@@ -46,6 +46,7 @@ void ConfigMenu::optionsMenu() {
             localOptions.push_back({"Dev Mode", [this]() { devMenu(); }});
         }
 
+        localOptions.push_back({"Screen Off",    []() { isScreenOff = true; turnOffDisplay(); } });
         localOptions.push_back({"Region / Time", []() { setRegionTimezone(); } });
         localOptions.push_back({"GPIO Monitor",  []() { mqShowGpioMonitor(); } });
         localOptions.push_back({"Check Updates", []() { mqCheckUpdates(); }    });
@@ -245,6 +246,7 @@ void ConfigMenu::advancedMenu() {
 void ConfigMenu::powerMenu() {
     while (true) {
         std::vector<Option> localOptions = {
+            {"Screen Off", []() { isScreenOff = true; turnOffDisplay(); }},
             {"Deep Sleep", goToDeepSleep          },
             {"Sleep",      setSleepMode           },
             {"Restart",    []() { ESP.restart(); }},
