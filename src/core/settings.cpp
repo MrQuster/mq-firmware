@@ -335,6 +335,9 @@ void setUIColor() {
 **********************************************************************/
 void setMainMenuStyleMenu() {
     options = {
+        {"Flipper List",
+         []() { bruceConfig.setMainMenuStyle(MAIN_MENU_LIST); },
+         bruceConfig.mainMenuStyle == MAIN_MENU_LIST    },
         {"Carousel",
          []() { bruceConfig.setMainMenuStyle(MAIN_MENU_CAROUSEL); },
          bruceConfig.mainMenuStyle == MAIN_MENU_CAROUSEL},
@@ -344,7 +347,8 @@ void setMainMenuStyleMenu() {
     };
     addOptionToMainMenu();
 
-    loopOptions(options, bruceConfig.mainMenuStyle);
+    int cur = bruceConfig.mainMenuStyle == MAIN_MENU_LIST ? 0 : (bruceConfig.mainMenuStyle == MAIN_MENU_CAROUSEL ? 1 : 2);
+    loopOptions(options, cur);
 }
 
 uint16_t alterOneColorChannel565(uint16_t color, int newR, int newG, int newB) {
@@ -1049,7 +1053,11 @@ void runClockLoop(bool showMenuHint) {
 
     // Delay due to SelPress() detected on run
     tft.fillScreen(bruceConfig.bgColor);
+#if defined(HAS_TOUCH)
+    TouchFooter();
+#endif
     delay(300);
+    touchPoint.Clear();
 
     for (;;) {
         if (millis() - tmp > 1000) {
@@ -1106,6 +1114,14 @@ void runClockLoop(bool showMenuHint) {
                 // Original behavior
                 returnToMenu = true;
                 break;
+            }
+        }
+
+        if (touchPoint.pressed) {
+            int ty = touchPoint.y;
+            touchPoint.Clear();
+            if (ty <= tftHeight) {
+                EscPress = true;
             }
         }
 

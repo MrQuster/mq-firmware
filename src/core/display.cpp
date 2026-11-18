@@ -80,19 +80,19 @@ void displayScrollingText(const String &text, Opt_Coord &coord, bool highlight) 
 ***************************************************************************************/
 void TouchFooter(uint16_t color) {
 #if defined(HAS_TOUCH)
-    tft.drawRoundRect(
-        BORDER_OFFSET_FROM_SCREEN_EDGE,
-        tftHeight + BORDER_OFFSET_FROM_SCREEN_EDGE - 3,
-        tftWidth - 2 * BORDER_OFFSET_FROM_SCREEN_EDGE,
-        TOUCH_FOOTER_HEIGHT - BORDER_OFFSET_FROM_SCREEN_EDGE + 3,
-        FP + 4,
-        color
-    );
-    tft.setTextColor(color);
-    tft.setTextSize(FM);
-    tft.drawCentreString("PREV", tftWidth / 6, tftHeight + BORDER_OFFSET_FROM_SCREEN_EDGE - 1, 1);
-    tft.drawCentreString("SEL", tftWidth / 2, tftHeight + BORDER_OFFSET_FROM_SCREEN_EDGE - 1, 1);
-    tft.drawCentreString("NEXT", 5 * tftWidth / 6, tftHeight + BORDER_OFFSET_FROM_SCREEN_EDGE - 1, 1);
+    int y = tftHeight + BORDER_OFFSET_FROM_SCREEN_EDGE - 3;
+    int h = TOUCH_FOOTER_HEIGHT - BORDER_OFFSET_FROM_SCREEN_EDGE + 3;
+    int bw = tftWidth / 4;
+    tft.fillRect(0, y, tftWidth, h, bruceConfig.bgColor);
+    const char *labels[4] = {"BACK", "UP", "DOWN", "OK"};
+    tft.setTextSize(1);
+    for (int i = 0; i < 4; i++) {
+        int bx = i * bw + 2;
+        int w = (i == 3 ? (tftWidth - i * bw - 4) : (bw - 4));
+        tft.drawRoundRect(bx, y + 1, w, h - 2, 4, color);
+        tft.setTextColor(color, bruceConfig.bgColor);
+        tft.drawCentreString(labels[i], bx + w / 2, y + (h - 8) / 2, 1);
+    }
 #endif
 }
 /***************************************************************************************
@@ -550,11 +550,11 @@ int loopOptions(
 ) {
     if (options.empty()) return -1;
 
-    bool useTapToSelect = menuType == MENU_TYPE_REGULAR ||
-                          (bruceConfig.mainMenuStyle == MAIN_MENU_GRID && menuType == MENU_TYPE_MAIN);
+    bool useTapToSelect = menuType == MENU_TYPE_REGULAR || menuType == MENU_TYPE_SUBMENU ||
+                          ((bruceConfig.mainMenuStyle == MAIN_MENU_GRID || bruceConfig.mainMenuStyle == MAIN_MENU_LIST) &&
+                           menuType == MENU_TYPE_MAIN);
     if (menuType == MENU_TYPE_SUBMENU) {
-        useTapToSelect = false;
-        touchZoneOutsideFooterEnabled = true;
+        touchZoneOutsideFooterEnabled = false;
     }
 
     bool prevTouchZoneOutsideFooterEnabled = touchZoneOutsideFooterEnabled;
@@ -905,7 +905,7 @@ int loopOptions(
         */
         // Prevent immediate selection if the SEL button was already being held when the menu opened.
         // Allow a short grace period for the user to release the button first.
-        static const unsigned long MENU_SELECT_IGNORE_MS = 600; // ms to ignore SEL after menu opens
+        static const unsigned long MENU_SELECT_IGNORE_MS = 250; // ms to ignore SEL after menu opens
 
         if (forceMenuOption >= 0 || (millis() - menuOpenTs > MENU_SELECT_IGNORE_MS && check(SelPress))) {
             uint16_t chosen = index;
@@ -1178,119 +1178,85 @@ Opt_Coord drawOptions(
 void drawSubmenu(int index, std::vector<Option> &options, const char *title) {
     drawStatusBar();
     int menuSize = options.size();
+    if (menuSize < 1) return;
+    if (index < 0 || index >= menuSize) index = 0;
+
+    int x0 = BORDER_OFFSET_FROM_SCREEN_EDGE + 4;
+    int scrollW = 6;
+    int rowW = tftWidth - 2 * x0 - scrollW;
+    int titleY = STATUS_BAR_HEIGHT - 1;
+    int headerH = LH * FP + 4;
+
+    tft.fillRect(
+        BORDER_OFFSET_FROM_SCREEN_EDGE + 1,
+        titleY,
+        tftWidth - 2 * (BORDER_OFFSET_FROM_SCREEN_EDGE + 1),
+        headerH,
+        bruceConfig.bgColor
+    );
     tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
     tft.setTextSize(FP);
-    tft.drawPixel(0, 0, 0);
-    tft.fillRect(
-        BORDER_OFFSET_FROM_SCREEN_EDGE + 1,
-        STATUS_BAR_HEIGHT,
-        tftWidth - 2 * (BORDER_OFFSET_FROM_SCREEN_EDGE + 1),
-        LH * FP,
-        bruceConfig.bgColor
-    );
-    tft.drawString(title, BORDER_PAD_X, STATUS_BAR_HEIGHT);
+    tft.drawString(title, x0, titleY + 1);
+    tft.drawFastHLine(x0, titleY + headerH - 2, tftWidth - 2 * x0, bruceConfig.secColor);
 
-    int selectedTextSize = options[index].label.length() <= tftWidth / (LW * FG) - 1 ? FG : FM;
-    int selectedTextH = selectedTextSize * LH;
-    int neighborTextH = FM * LH;
-    int rowGap = FP * (LH / 2);
-    int rowPitch = FG * LH + rowGap;
-    int rowClearH = FG * LH + rowGap;
+    int listTop = titleY + headerH + 2;
+    int listBottom = tftHeight - BORDER_OFFSET_FROM_SCREEN_EDGE - 2;
+    int rowH = LH * FM + 6;
+    int visibleRows = max(1, (listBottom - listTop) / rowH);
 
-    // Keep the title row intact and center the selected option in the remaining content area.
-    int contentTop = STATUS_BAR_HEIGHT + LH * FP + 4;
-    int contentBottom = tftHeight - BORDER_OFFSET_FROM_SCREEN_EDGE - 1;
-    int middle = contentTop + (contentBottom - contentTop) / 2;
+    static int s_subScroll = 0;
+    if (s_subScroll > index) s_subScroll = index;
+    if (s_subScroll + visibleRows <= index) s_subScroll = index - visibleRows + 1;
+    int maxScroll = max(0, menuSize - visibleRows);
+    if (s_subScroll > maxScroll) s_subScroll = maxScroll;
+    if (s_subScroll < 0) s_subScroll = 0;
 
     tft.fillRect(
         BORDER_OFFSET_FROM_SCREEN_EDGE + 1,
-        contentTop,
+        listTop,
         tftWidth - 2 * (BORDER_OFFSET_FROM_SCREEN_EDGE + 1),
-        contentBottom - contentTop,
+        listBottom - listTop,
         bruceConfig.bgColor
     );
 
-    int spaceAbove = middle - contentTop - neighborTextH / 2;
-    int spaceBelow = contentBottom - middle - neighborTextH / 2;
-    int neighborSpaceEachSide = spaceAbove < spaceBelow ? spaceAbove : spaceBelow;
-    int maxNeighbors = neighborSpaceEachSide > 0 ? neighborSpaceEachSide / rowPitch : 0;
-    int maxByList = (menuSize - 1) / 2;
-    int neighbors = maxNeighbors < maxByList ? maxNeighbors : maxByList;
-    if (neighbors < 0) neighbors = 0;
-
-    tft.setTextSize(FM);
-    for (int k = neighbors; k >= 1; k--) {
-        int idx = ((index - k) % menuSize + menuSize) % menuSize;
-        int itemCenterY = middle - k * rowPitch;
-        int y = itemCenterY - neighborTextH / 2;
-        tft.setTextColor(options[idx].enabled ? bruceConfig.secColor : TFT_DARKGREY);
-        tft.fillRect(
-            BORDER_OFFSET_FROM_SCREEN_EDGE + 1,
-            itemCenterY - rowClearH / 2,
-            tftWidth - 2 * (BORDER_OFFSET_FROM_SCREEN_EDGE + 1),
-            rowClearH,
-            bruceConfig.bgColor
-        );
-        tft.drawCentreString(options[idx].label, tftWidth / 2, y, SMOOTH_FONT);
+    for (auto &opt : options) {
+        opt.w = 0;
+        opt.h = 0;
     }
 
-    // Selected item
-    tft.setTextSize(selectedTextSize);
-    tft.setTextColor(options[index].enabled ? bruceConfig.priColor : TFT_DARKGREY);
-    tft.fillRect(
-        BORDER_OFFSET_FROM_SCREEN_EDGE + 1,
-        middle - rowClearH / 2,
-        tftWidth - 2 * (BORDER_OFFSET_FROM_SCREEN_EDGE + 1),
-        rowClearH,
-        bruceConfig.bgColor
-    );
-    tft.drawCentreString(options[index].label, tftWidth / 2, middle - selectedTextH / 2, SMOOTH_FONT);
-    tft.drawFastHLine(
-        tftWidth / 2 - strlen(options[index].label.c_str()) * selectedTextSize * LW / 2,
-        middle + selectedTextH / 2 + 1,
-        strlen(options[index].label.c_str()) * selectedTextSize * LW,
-        bruceConfig.priColor
-    );
-
+    int maxChars = max(1, (rowW - 14) / (LW * FM));
     tft.setTextSize(FM);
-    for (int k = 1; k <= neighbors; k++) {
-        int idx = (index + k) % menuSize;
-        int itemCenterY = middle + k * rowPitch;
-        int y = itemCenterY - neighborTextH / 2;
-        tft.setTextColor(options[idx].enabled ? bruceConfig.secColor : TFT_DARKGREY);
-        tft.fillRect(
-            BORDER_OFFSET_FROM_SCREEN_EDGE + 1,
-            itemCenterY - rowClearH / 2,
-            tftWidth - 2 * (BORDER_OFFSET_FROM_SCREEN_EDGE + 1),
-            rowClearH,
-            bruceConfig.bgColor
-        );
-        tft.drawCentreString(options[idx].label, tftWidth / 2, y, SMOOTH_FONT);
+    int last = min(menuSize, s_subScroll + visibleRows);
+    for (int i = s_subScroll; i < last; i++) {
+        int r = i - s_subScroll;
+        int y = listTop + r * rowH;
+        options[i].x = x0;
+        options[i].y = y;
+        options[i].w = rowW;
+        options[i].h = rowH;
+
+        bool isSel = (i == index);
+        uint16_t rowBg = isSel ? bruceConfig.priColor : bruceConfig.bgColor;
+        uint16_t rowFg = isSel ? TFT_BLACK : (options[i].enabled ? bruceConfig.priColor : TFT_DARKGREY);
+        if (isSel) {
+            tft.fillRoundRect(x0, y + 1, rowW, rowH - 2, 4, rowBg);
+        }
+        tft.setTextColor(rowFg, rowBg);
+        String lbl = (isSel ? "> " : "  ") + options[i].label;
+        tft.drawString(lbl.substring(0, maxChars), x0 + 4, y + (rowH - LH * FM) / 2);
     }
 
-    tft.fillRect(
-        tftWidth - BORDER_OFFSET_FROM_SCREEN_EDGE,
-        0,
-        BORDER_OFFSET_FROM_SCREEN_EDGE,
-        tftHeight,
-        bruceConfig.bgColor
-    );
-    tft.fillRect(
-        tftWidth - BORDER_OFFSET_FROM_SCREEN_EDGE,
-        index * tftHeight / menuSize,
-        BORDER_OFFSET_FROM_SCREEN_EDGE,
-        tftHeight / menuSize,
-        bruceConfig.priColor
-    );
+    // Flipper-style vertical scrollbar
+    int barX = tftWidth - BORDER_OFFSET_FROM_SCREEN_EDGE - 4;
+    int trackH = listBottom - listTop;
+    tft.fillRect(barX, listTop, 3, trackH, bruceConfig.bgColor);
+    if (menuSize > visibleRows && trackH > 8) {
+        int thumbH = max(8, (trackH * visibleRows) / menuSize);
+        int thumbY = listTop + ((trackH - thumbH) * index) / max(1, menuSize - 1);
+        tft.fillRect(barX, thumbY, 3, thumbH, bruceConfig.priColor);
+    }
 
 #if defined(HAS_TOUCH)
-    tft.setTextColor(getColorVariation(bruceConfig.priColor), bruceConfig.bgColor);
-    // Top-right, matching the "[ x ]" loopOptions()/drawOptions() draw for regular lists, and matching
-    // where touchHeatMap() (utils.cpp) now maps the EscPress zone.
-    int escW = 5 * LW * FM + 4;
-    tft.drawString(
-        "[ x ]", tftWidth - BORDER_OFFSET_FROM_SCREEN_EDGE - 2 - escW, BORDER_OFFSET_FROM_SCREEN_EDGE + 2, 1
-    );
     TouchFooter();
 #endif
 }

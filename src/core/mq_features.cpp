@@ -68,6 +68,9 @@ void mqShowGpioMonitor() {
 
     tft.fillScreen(bruceConfig.bgColor);
     drawMainBorderWithTitle("GPIO MONITOR", false);
+#if defined(HAS_TOUCH)
+    TouchFooter();
+#endif
 
     uint32_t lastDraw = 0;
     while (true) {
@@ -98,69 +101,19 @@ void mqShowGpioMonitor() {
             tft.drawCentreString("Tap / Back to exit", tftWidth / 2, tftHeight - 14, 1);
         }
 
-        if (check(EscPress) || check(SelPress) || check(NextPress) || check(PrevPress)) {
+        if (touchPoint.pressed || check(EscPress) || check(SelPress) || check(NextPress) || check(PrevPress)) {
+            touchPoint.Clear();
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(30));
     }
-}
-
-void mqShowIdleMascot() {
-    Serial.println("[MQ] Mascot init: Qubi");
-    tft.fillScreen(bruceConfig.bgColor);
-    int cx = tftWidth / 2;
-    int cy = tftHeight / 2 - 8;
-    int frame = 0;
-    uint32_t lastFrame = 0;
-
-    while (true) {
-        if (millis() - lastFrame >= 350) {
-            lastFrame = millis();
-            frame = (frame + 1) % 6;
-
-            tft.fillRect(cx - 55, cy - 60, 110, 115, bruceConfig.bgColor);
-
-            // Antenna
-            int antOffset = (frame % 2 == 0) ? -2 : 2;
-            tft.drawLine(cx, cy - 35, cx + antOffset, cy - 50, bruceConfig.priColor);
-            tft.fillCircle(cx + antOffset, cy - 52, 4, (frame == 0) ? TFT_GREEN : bruceConfig.secColor);
-
-            // Head (MQ-Bot)
-            tft.drawRoundRect(cx - 34, cy - 35, 68, 48, 10, bruceConfig.priColor);
-            tft.fillRoundRect(cx - 26, cy - 26, 52, 26, 6, 0x0841);
-
-            // Eyes (blink on frame 4)
-            if (frame == 4) {
-                tft.drawLine(cx - 18, cy - 13, cx - 6, cy - 13, bruceConfig.priColor);
-                tft.drawLine(cx + 6, cy - 13, cx + 18, cy - 13, bruceConfig.priColor);
-            } else {
-                int look = (frame == 2) ? 2 : ((frame == 3) ? -2 : 0);
-                tft.fillCircle(cx - 12 + look, cy - 13, 5, bruceConfig.priColor);
-                tft.fillCircle(cx + 12 + look, cy - 13, 5, bruceConfig.priColor);
-            }
-
-            // Body + MQ badge
-            tft.drawRoundRect(cx - 24, cy + 16, 48, 30, 6, bruceConfig.secColor);
-            tft.setTextColor(bruceConfig.priColor, bruceConfig.bgColor);
-            tft.setTextSize(2);
-            tft.drawCentreString("MQ", cx, cy + 23, 1);
-            tft.setTextSize(1);
-            tft.setTextColor(bruceConfig.secColor, bruceConfig.bgColor);
-            tft.drawCentreString("Qubi - MQ Pet (tap to wake)", cx, tftHeight - 16, 1);
-        }
-
-        if (check(AnyKeyPress) || check(EscPress) || check(SelPress) || check(NextPress) || check(PrevPress)) {
-            break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(30));
-    }
-    tft.fillScreen(bruceConfig.bgColor);
 }
 
 void mqCheckUpdates() {
     ScrollableTextArea area = ScrollableTextArea("MQ UPDATES");
     area.addLine("Current: MQ v" + String(BRUCE_VERSION));
-    area.addLine("Built: " + String(__DATE__));
+    area.addLine("Built: " + String(__DATE__) + " " + String(__TIME__));
+    area.addLine("Free RAM: " + String(ESP.getFreeHeap() / 1024) + " KB");
     area.addLine("");
 
     if (!WiFi.isConnected()) {
@@ -173,6 +126,7 @@ void mqCheckUpdates() {
         area.show();
         return;
     }
+    area.addLine("IP: " + WiFi.localIP().toString());
 
     displayInfo("Checking GitHub...", false);
     WiFiClientSecure client;

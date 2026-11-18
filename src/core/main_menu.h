@@ -49,8 +49,9 @@ public:
     std::vector<MenuItemInterface *> getItems(void) { return _menuItems; }
     void hideAppsMenu();
 
-    // Grid layout rendering (bruceConfig.mainMenuStyle == MAIN_MENU_GRID)
+    // Grid & Flipper List layout rendering
     void drawGrid(int index);
+    void drawList(int index);
     int gridIndexOf(MenuItemInterface *item);
 
     // Registered as gridPageTapHandler (see display.h) so loopOptions() can offer a page-up/down
@@ -74,6 +75,8 @@ private:
     void buildGridLayout(int itemCount);
     void drawGridCell(int index, bool selected);
     void drawGridScrollBar();
+    void drawListRow(int index, int row, int areaX, int areaY, int rowW, int rowH, bool selected);
+    void drawListScrollBar(int areaY, int trackH, int visibleRows, int itemCount);
 
     int _currentIndex = 0;
     int _totalItems = 0;
@@ -85,6 +88,11 @@ private:
     int _gridLastIndex = -1;
     uint8_t _gridRotation = ROTATION;
     bool _gridRedrawAll = true;
+
+    int _listScroll = 0;
+    int _listLastIndex = -1;
+    uint8_t _listRotation = ROTATION;
+    bool _listRedrawAll = true;
 };
 extern MainMenu mainMenu;
 

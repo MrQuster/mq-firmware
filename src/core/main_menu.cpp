@@ -84,9 +84,10 @@ void MainMenu::begin(void) {
     probeAllModules(false);
 
     bool gridStyle = bruceConfig.mainMenuStyle == MAIN_MENU_GRID;
+    bool listStyle = bruceConfig.mainMenuStyle == MAIN_MENU_LIST;
 
     // Option::hover is a plain function pointer, so both renderers stay capture-less
-    // and the grid one resolves its own position from the item pointer it receives.
+    // and the grid/list ones resolve their own position from the item pointer they receive.
     bool (*renderItem)(void *menuItem, bool shouldRender) = [](void *menuItem, bool shouldRender) {
         if (!shouldRender) return false;
         drawMainBorder(false);
@@ -105,6 +106,12 @@ void MainMenu::begin(void) {
         renderItem = [](void *menuItem, bool shouldRender) {
             if (!shouldRender) return false;
             mainMenu.drawGrid(mainMenu.gridIndexOf(static_cast<MenuItemInterface *>(menuItem)));
+            return true;
+        };
+    } else if (listStyle) {
+        renderItem = [](void *menuItem, bool shouldRender) {
+            if (!shouldRender) return false;
+            mainMenu.drawList(mainMenu.gridIndexOf(static_cast<MenuItemInterface *>(menuItem)));
             return true;
         };
     }
@@ -163,7 +170,7 @@ void MainMenu::begin(void) {
          &mqModulesMenuItem}
     );
 
-    // The grid needs a fresh full repaint every time we come back to the main menu,
+    // The grid/list need a fresh full repaint every time we come back to the main menu,
     // since loopOptions clears the screen before the first render.
     if (gridStyle) {
         buildGridLayout(options.size());
@@ -171,12 +178,116 @@ void MainMenu::begin(void) {
         _gridLastIndex = -1;
         _gridRedrawAll = true;
         mainMenuGridColumns = _grid.cols;
+    } else if (listStyle) {
+        _listScroll = 0;
+        _listLastIndex = -1;
+        _listRedrawAll = true;
+        mainMenuGridColumns = 0;
     } else {
         mainMenuGridColumns = 0;
     }
 
-    _currentIndex = loopOptions(options, MENU_TYPE_MAIN, "Main Menu", _currentIndex);
+    int sel = loopOptions(options, MENU_TYPE_MAIN, "Main Menu", _currentIndex);
+    if (sel >= 0) _currentIndex = sel;
 };
+
+void MainMenu::drawList(int index) {
+    int itemCount = options.size();
+    if (itemCount < 1) return;
+    if (index < 0 || index >= itemCount) index = 0;
+
+    int areaX = BORDER_OFFSET_FROM_SCREEN_EDGE + 4;
+    int areaY = STATUS_BAR_HEIGHT - 1;
+    int scrollW = 6;
+    int rowW = tftWidth - 2 * areaX - scrollW;
+    int areaH = tftHeight - areaY - BORDER_OFFSET_FROM_SCREEN_EDGE - 1;
+    int visibleRows = max(1, min(itemCount, 6));
+    int rowH = max(20, areaH / visibleRows);
+
+    if (_listRotation != bruceConfigPins.rotation) {
+        _listRotation = bruceConfigPins.rotation;
+        _listRedrawAll = true;
+    }
+
+    int scroll = _listScroll;
+    if (index < scroll) scroll = index;
+    else if (index >= scroll + visibleRows) scroll = index - visibleRows + 1;
+    int maxScroll = max(0, itemCount - visibleRows);
+    if (scroll > maxScroll) scroll = maxScroll;
+
+    bool redrawAll = _listRedrawAll || scroll != _listScroll;
+    _listScroll = scroll;
+
+    if (redrawAll) {
+        for (auto &opt : options) {
+            opt.w = 0;
+            opt.h = 0;
+        }
+        drawMainBorder(false);
+        tft.fillRect(areaX, areaY, rowW, visibleRows * rowH, bruceConfig.bgColor);
+        int first = _listScroll;
+        int last = min(itemCount, first + visibleRows);
+        for (int i = first; i < last; i++) {
+            drawListRow(i, i - first, areaX, areaY, rowW, rowH, i == index);
+        }
+        drawListScrollBar(areaY, visibleRows * rowH, visibleRows, itemCount);
+#if defined(HAS_TOUCH)
+        TouchFooter();
+#endif
+    } else {
+        if (_listLastIndex >= _listScroll && _listLastIndex < _listScroll + visibleRows && _listLastIndex != index) {
+            drawListRow(_listLastIndex, _listLastIndex - _listScroll, areaX, areaY, rowW, rowH, false);
+        }
+        drawListRow(index, index - _listScroll, areaX, areaY, rowW, rowH, true);
+        drawListScrollBar(areaY, visibleRows * rowH, visibleRows, itemCount);
+    }
+
+    _listLastIndex = index;
+    _listRedrawAll = false;
+}
+
+void MainMenu::drawListRow(int index, int row, int areaX, int areaY, int rowW, int rowH, bool selected) {
+    int y = areaY + row * rowH;
+    options[index].x = areaX;
+    options[index].y = y;
+    options[index].w = rowW;
+    options[index].h = rowH;
+
+    uint16_t rowBg = selected ? bruceConfig.priColor : bruceConfig.bgColor;
+    uint16_t txtFg = selected ? TFT_BLACK : bruceConfig.priColor;
+    int badgeSize = min(rowH - 6, 22);
+    int iconX = areaX + 4 + badgeSize / 2;
+    int iconY = y + rowH / 2;
+
+    tft.fillRect(areaX, y, rowW, rowH, bruceConfig.bgColor);
+    if (selected) {
+        tft.fillRoundRect(areaX, y + 1, rowW, rowH - 2, 5, rowBg);
+        tft.fillRoundRect(areaX + 3, y + (rowH - badgeSize) / 2, badgeSize, badgeSize, 4, bruceConfig.bgColor);
+    }
+
+    MenuItemInterface *item = static_cast<MenuItemInterface *>(options[index].hoverPointer);
+    if (item) {
+        item->drawIconInBox(iconX, iconY, badgeSize - 2, bruceConfig.priColor, bruceConfig.bgColor);
+    }
+
+    int textX = areaX + badgeSize + 10;
+    int maxChars = max(1, (rowW - (textX - areaX) - 14) / (LW * FM));
+    tft.setTextSize(FM);
+    tft.setTextColor(txtFg, rowBg);
+    tft.drawString(options[index].label.substring(0, maxChars), textX, y + (rowH - LH * FM) / 2);
+    if (selected) {
+        tft.drawString(">", areaX + rowW - 12, y + (rowH - LH * FM) / 2);
+    }
+}
+
+void MainMenu::drawListScrollBar(int areaY, int trackH, int visibleRows, int itemCount) {
+    int barX = tftWidth - BORDER_OFFSET_FROM_SCREEN_EDGE - 4;
+    tft.fillRect(barX, areaY, 3, trackH, bruceConfig.bgColor);
+    if (itemCount <= visibleRows) return;
+    int thumbH = max(8, trackH * visibleRows / itemCount);
+    int thumbY = areaY + (trackH - thumbH) * _listScroll / max(1, itemCount - visibleRows);
+    tft.fillRect(barX, thumbY, 3, thumbH, bruceConfig.priColor);
+}
 
 /*********************************************************************
 **  Function: gridIndexOf

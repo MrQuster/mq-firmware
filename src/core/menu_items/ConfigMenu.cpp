@@ -48,7 +48,6 @@ void ConfigMenu::optionsMenu() {
 
         localOptions.push_back({"Region / Time", []() { setRegionTimezone(); } });
         localOptions.push_back({"GPIO Monitor",  []() { mqShowGpioMonitor(); } });
-        localOptions.push_back({"Pet: Qubi",     []() { mqShowIdleMascot(); }  });
         localOptions.push_back({"Check Updates", []() { mqCheckUpdates(); }    });
         localOptions.push_back({"About", showDeviceInfo});
         localOptions.push_back({"Main Menu", []() {}});

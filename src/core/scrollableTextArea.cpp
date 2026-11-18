@@ -74,11 +74,11 @@ size_t ScrollableTextArea::getMaxLines() { return linesBuffer.size(); }
 void ScrollableTextArea::show(bool force) {
     draw(force);
 
-    while (check(SelPress)) {
+    while (check(SelPress) || check(EscPress)) {
         update();
         yield();
     }
-    while (!check(SelPress)) {
+    while (!check(SelPress) && !check(EscPress)) {
         update();
         yield();
     }
@@ -226,6 +226,9 @@ void ScrollableTextArea::draw(bool force) {
     lastVisibleLine = firstVisibleLine + lines;
     tft.setTextSize(_fSize);
     tft.setTextDatum(oldDatum);
+#if defined(HAS_TOUCH)
+    TouchFooter();
+#endif
 
     _redraw = false;
 }

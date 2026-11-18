@@ -1,5 +1,6 @@
 from pathlib import Path
 import csv
+import shutil
 from SCons.Script import Import
 
 # Import PlatformIO's SCons environment
@@ -22,9 +23,7 @@ BOOT_OFFSETS = {
 }
 boot_offset = BOOT_OFFSETS.get(mcu, 0x0000)  # safe fallback
 
-# Default offsets (adjust if your partitions.csv uses custom addresses)
 PART_TABLE_OFFSET = 0x8000
-APP_OFFSET        = 0x10000
 
 # Paths
 build_dir = Path(senv.subst("$BUILD_DIR"))
@@ -35,113 +34,139 @@ boot_bin = build_dir / "bootloader.bin"
 part_bin = build_dir / "partitions.bin"
 app_bin  = build_dir / "firmware.bin"
 
-out_bin  = proj_dir / f"MQ-{pioenv}.bin"
+is_recovery = pioenv.endswith("-recovery")
+device_name = pioenv[: -len("-recovery")] if is_recovery else pioenv
 
-# Esptool from PlatformIO + Python executable
-esptool_pkg = senv.PioPlatform().get_package_dir("tool-esptoolpy")
-esptool_py  = str(Path(esptool_pkg) / "esptool")
-python_exe  = senv.get("PYTHONEXE", "python")
+part_csv_name = board_config.get("build.partitions") or senv.GetProjectOption(
+    "board_build.partitions", default=""
+)
 
-chip_arg = mcu if mcu else "esp32"
 
-def _merge_bins_callback(target, source, env):
+def read_partitions():
+    """Return {subtype: (offset, size)} from the CSV used by this build."""
+    part_csv = proj_dir / part_csv_name if part_csv_name else proj_dir / "partitions.csv"
+    result = {}
+    if not part_csv.exists():
+        return result
+    with open(part_csv, newline="") as f:
+        for row in csv.reader(f):
+            if not row or row[0].strip().startswith("#"):
+                continue
+            cols = [c.strip() for c in row]
+            if len(cols) < 5:
+                continue
+            name, ptype, subtype, offset, size = cols[:5]
+            try:
+                result[subtype.lower()] = (int(offset, 0), int(size, 0), name)
+            except ValueError:
+                continue
+    return result
+
+
+partitions = read_partitions()
+
+
+def selected_app_partition():
+    """Main app targets ota_0; the recovery app targets factory."""
+    if is_recovery:
+        return partitions.get("factory")
+    return partitions.get("ota_0") or partitions.get("factory")
+
+
+def esptool_merge(output, segments):
+    esptool_pkg = senv.PioPlatform().get_package_dir("tool-esptoolpy")
+    python_exe = senv.get("PYTHONEXE", "python")
+    chip_arg = mcu if mcu else "esp32"
+    args = []
+    for offset, path in segments:
+        args.extend([hex(offset), f'"{path}"'])
+    cmd = " ".join(
+        [
+            f'"{python_exe}"',
+            "-m",
+            "platformio",
+            "pkg",
+            "exec",
+            "-p",
+            f'"{esptool_pkg}"',
+            "--",
+            "esptool.py",
+            "--chip",
+            chip_arg,
+            "merge-bin",
+            "--output",
+            f'"{output}"',
+        ]
+        + args
+    )
+    print("[merge_bin]", cmd)
+    return senv.Execute(cmd)
+
+
+def _post_build_callback(target, source, env):
     """
     Post-action callback executed after firmware.bin is built.
-    Merges bootloader, partitions, and app into a single binary.
-    NOTE: This function signature must be (target, source, env) so SCons can call it.
+
+    Main application:
+        MQ-<device>.bin          pure application image for OTA (ota_0)
+    Recovery application:
+        MQ-<device>-recovery.bin bootloader + partition table + factory app
     """
-    # Check files
     missing = [p for p in [boot_bin, part_bin, app_bin] if not p.exists()]
     if missing:
-        print("[merge_bin] Missing files, merge aborted:")
+        print("[post_build] Missing files, merge aborted:")
         for p in missing:
             print(f" - {p}")
         return
 
-    # Quote paths for Windows safety
-    def q(p): return f"\"{p}\""
+    part = selected_app_partition()
+    if part is None:
+        print("[post_build] No factory/ota_0 partition in", part_csv_name)
+        env.Exit(1)
+        return
+    part_offset, part_size, part_name = part
 
-    # ---- Read partition CSV to get test partition size and ota_0 offset ----
-    part_csv_name = board_config.get("build.partitions") or env.GetProjectOption(
-        "board_build.partitions", default=""
+    fw_size = app_bin.stat().st_size
+    percent = (fw_size / part_size) * 100 if part_size else 0
+    print(
+        f"MQ: {part_name} 0x{fw_size:X} / 0x{part_size:X} bytes "
+        f"({percent:.1f}% used, {100.0 - percent:.1f}% free)"
     )
-    part_csv = proj_dir / part_csv_name if part_csv_name else proj_dir / "partitions.csv"
-    ota_size = None
-    ota0_offset = None
-    if part_csv.exists():
-        with open(part_csv, newline="") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                if not row or row[0].startswith("#"):
-                    continue
-                cols = [c.strip() for c in row]
-                if len(cols) < 5:
-                    continue
-                name, ptype, subtype, offset, size = cols[:5]
-                subtype = subtype.lower()
-                if subtype == "ota_0" and ota_size is None:
-                    try:
-                        ota_size = int(size, 0)
-                        ota0_offset = int(offset, 0)
-                    except ValueError:
-                        pass
+    if fw_size > part_size:
+        print(f"[post_build] Error: firmware.bin exceeds {part_name} partition size")
+        env.Exit(1)
+        return
 
-    # ---- Firmware size check against test partition ----
-    if ota_size:
-        fw_size = app_bin.stat().st_size
-        percent = (fw_size / ota_size) * 100 if ota_size else 0
-        bar_len = 20
-        filled = int(bar_len * fw_size / ota_size)
-        bar = "=" * filled + " " * (bar_len - filled)
-        print(
-            f"MQ: [{bar}] {percent:.1f}% (used 0x{fw_size:X} bytes of 0x{ota_size:X} of OTA partition)"
-        )
-        if fw_size > ota_size:
-            print("[merge_bin] Error: firmware.bin exceeds OTA partition size")
-            env.Exit(1)
+    if is_recovery:
+        out_bin = proj_dir / f"MQ-{device_name}-recovery.bin"
+        rc = esptool_merge(out_bin, [(boot_offset, boot_bin), (PART_TABLE_OFFSET, part_bin), (part_offset, app_bin)])
+        if rc != 0:
+            print("[post_build] Recovery merge failed with exit code", rc)
+            env.Exit(rc)
+        else:
+            print(f"[post_build] Recovery image -> {out_bin} ({out_bin.stat().st_size} bytes)")
+        return
 
-    cmd = " ".join([
-        q(python_exe), "-m", "platformio", "pkg", "exec", "-p", q("tool-esptoolpy"), "--", "esptool.py",
-        "--chip", chip_arg,
-        "merge-bin",
-        "--output", q(out_bin),
-        hex(boot_offset), q(boot_bin),
-        hex(PART_TABLE_OFFSET), q(part_bin),
-        hex(APP_OFFSET), q(app_bin),
-    ])
+    # The OTA asset must be the bare application image, not a merged flash dump.
+    out_bin = proj_dir / f"MQ-{device_name}.bin"
+    shutil.copyfile(app_bin, out_bin)
+    print(f"[post_build] OTA application -> {out_bin} ({out_bin.stat().st_size} bytes)")
 
-    print("[merge_bin] Merging binaries:")
-    print(" ", cmd)
-    rc = env.Execute(cmd)
-    if rc != 0:
-        print(f"[merge_bin] Failed with exit code {rc}")
-        env.Exit(rc)
-    else:
-        try:
-            size = out_bin.stat().st_size
-        except FileNotFoundError:
-            size = 0
-        print(f"[merge_bin] Success -> {out_bin} ({size} bytes)")
-        if ota0_offset:
-            if size < (ota0_offset + ota_size):
-                print("[Final bin] Valid bin to upload")
-            else:
-                print(
-                    f"[Final bin] Error: bin size 0x{size:X} exceeds ota_0 offset 0x{(ota0_offset+ota_size):X}"
-                )
-                env.Exit(1)
+
+def _manual_callback(target, source, env):
+    _post_build_callback(target, source, env)
+    return 0
+
 
 # Automatically run after firmware.bin is generated
-senv.AddPostAction(str(app_bin), _merge_bins_callback)
+senv.AddPostAction(str(app_bin), _post_build_callback)
 
-# Optional manual target: depend on the three binaries and run the same callback
-# Wrap it in a lambda so SCons can call it without (target, source, env) if needed.
 senv.AddCustomTarget(
     name="build-firmware",
     dependencies=[str(boot_bin), str(part_bin), str(app_bin)],
-    actions=[_merge_bins_callback],
-    title="Build Firmware (merge)",
-    description="Merge bootloader + partitions + app into a single .bin file"
+    actions=[_manual_callback],
+    title="Build Firmware (merge/copy)",
+    description="Prepare the OTA application or the recovery flash image",
 )
 
 # Keep your upload-nobuild helper
@@ -150,5 +175,5 @@ senv.AddCustomTarget(
     dependencies=None,
     actions=[f"platformio run -t upload -t nobuild -e {pioenv}"],
     title="Upload Nobuild",
-    description="Run upload without rebuilding"
+    description="Run upload without rebuilding",
 )

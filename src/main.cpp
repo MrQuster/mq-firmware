@@ -539,7 +539,9 @@ void setup() {
 #if !defined(USE_DUMMY_TFT)
     bruceConfig.openThemeFile(bruceConfig.themeFS(), bruceConfig.themePath, false);
     if (!bruceConfig.instantBoot) {
-        boot_screen_anim();
+        if (bruceConfig.theme.boot_img || LittleFS.exists("/boot.jpg") || LittleFS.exists("/boot.gif")) {
+            boot_screen_anim();
+        }
         startup_sound();
     }
     if (bruceConfig.wifiAtStartup) {

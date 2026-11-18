@@ -1,4 +1,5 @@
 #include "core/bus_HAL.h"
+#include "core/display.h"
 #include "core/powerSave.h"
 #include "core/utils.h"
 #include "hal/bright/bright.h"
@@ -210,12 +211,86 @@ void _setBrightness(uint8_t brightval) { hal_bright_set(TFT_BL, brightval); }
 ** Handles the variables PrevPress, NextPress, SelPress, AnyKeyPress and EscPress
 **********************************************************************/
 void InputHandler(void) {
-    static long d_tmp = 0;
-    if (millis() - d_tmp > 200 || LongPress) {
-        BruceTouchPoint t;
-        if (hal_touch_read(touchCfg(), t)) {
-            d_tmp = millis();
-            hal_touch_apply(t);
+    static long lastFooterMs = 0;
+    static long lastEmitMs = 0;
+    static bool wasDown = false;
+    static bool swiped = false;
+    static bool wokeScreen = false;
+    static BruceTouchPoint startPt;
+    static BruceTouchPoint lastPt;
+
+    BruceTouchPoint t;
+    if (hal_touch_read(touchCfg(), t)) {
+        if (!wasDown) {
+            if (wakeUpScreen()) {
+                wasDown = true;
+                wokeScreen = true;
+                swiped = true;
+                return;
+            }
+            wokeScreen = false;
+        }
+        if (wokeScreen) return;
+
+        // Bottom Flipper bar (BACK | UP | DOWN | OK): instant response + hold repeat
+        if (t.y > tftHeight && !wasDown) {
+            if (millis() - lastFooterMs > 180) {
+                lastFooterMs = millis();
+                hal_touch_apply(t, false);
+            }
+            wasDown = true;
+            swiped = true;
+            return;
+        }
+        if (t.y > tftHeight && wasDown && swiped) {
+            if (millis() - lastFooterMs > 220) {
+                lastFooterMs = millis();
+                hal_touch_apply(t, false);
+            }
+            return;
+        }
+
+        if (!wasDown) {
+            wasDown = true;
+            swiped = false;
+            startPt = t;
+            lastPt = t;
+        } else {
+            lastPt = t;
+            if (!swiped) {
+                int dx = (int)lastPt.x - (int)startPt.x;
+                int dy = (int)lastPt.y - (int)startPt.y;
+                if (abs(dx) > 42 || abs(dy) > 34) {
+                    swiped = true;
+                    lastEmitMs = millis();
+                    AnyKeyPress = true;
+                    if (abs(dx) > abs(dy)) {
+                        if (dx < 0) EscPress = true; // Swipe Left = BACK
+                        else SelPress = true;        // Swipe Right = OK
+                    } else {
+                        if (dy < 0) NextPress = true; // Swipe Up = Next / Scroll down
+                        else PrevPress = true;        // Swipe Down = Prev / Scroll up
+                    }
+                } else if (t.x <= 75 && t.y <= 26) {
+                    // Preserve corner long-hold Credits Easter egg while held
+                    hal_touch_apply(t, false);
+                }
+            }
+        }
+    } else if (wasDown) {
+        wasDown = false;
+        if (wokeScreen) {
+            wokeScreen = false;
+            swiped = false;
+            return;
+        }
+        if (swiped) {
+            swiped = false;
+            return;
+        }
+        if (millis() - lastEmitMs > 120) {
+            lastEmitMs = millis();
+            hal_touch_apply(lastPt, false);
         }
     }
 }

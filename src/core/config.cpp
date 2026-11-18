@@ -69,6 +69,7 @@ JsonDocument BruceConfig::toJson() const {
     setting["devMode"] = devMode;
     setting["colorInverted"] = colorInverted;
     setting["mainMenuStyle"] = mainMenuStyle;
+    setting["mqFlipperDefault"] = true;
 
     setting["badUSBBLEKeyboardLayout"] = badUSBBLEKeyboardLayout;
     setting["badUSBBLEKeyDelay"] = badUSBBLEKeyDelay;
@@ -387,7 +388,10 @@ void BruceConfig::fromFile(bool checkFS) {
         count++;
         log_e("Fail");
     }
-    if (!setting["mainMenuStyle"].isNull()) {
+    if (setting["mqFlipperDefault"].isNull()) {
+        mainMenuStyle = MAIN_MENU_LIST;
+        count++;
+    } else if (!setting["mainMenuStyle"].isNull()) {
         mainMenuStyle = setting["mainMenuStyle"].as<int>();
     } else {
         count++;
@@ -800,8 +804,8 @@ void BruceConfig::setMainMenuStyle(int value) {
 }
 
 void BruceConfig::validateMainMenuStyle() {
-    if (mainMenuStyle < MAIN_MENU_CAROUSEL || mainMenuStyle > MAIN_MENU_GRID)
-        mainMenuStyle = MAIN_MENU_CAROUSEL;
+    if (mainMenuStyle < MAIN_MENU_CAROUSEL || mainMenuStyle > MAIN_MENU_LIST)
+        mainMenuStyle = MAIN_MENU_LIST;
 }
 
 void BruceConfig::setBadUSBBLEKeyboardLayout(int value) {

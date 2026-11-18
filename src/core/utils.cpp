@@ -364,35 +364,26 @@ void showModuleStatus() {
 ** Touchscreen Mapping, include this function after reading the touchPoint
 **********************************************************************/
 void touchHeatMap(struct BruceTouchPoint t) {
+    // Bottom Flipper bar: [ BACK ] [ UP ] [ DOWN ] [ OK ]
+    if (t.y > tftHeight) {
+        int quarter = tftWidth / 4;
+        if (t.x < quarter) EscPress = true;
+        else if (t.x < quarter * 2) PrevPress = true;
+        else if (t.x < quarter * 3) NextPress = true;
+        else SelPress = true;
+        return;
+    }
+
+    if (!touchZoneOutsideFooterEnabled) return;
+
     int third_x = tftWidth / 3;
     int third_y = tftHeight / 3;
-
-    // The footer band always reads as PREV/SEL/NEXT (the labels TouchFooter() draws there).
-    // Everything above it is opt-out via touchZoneOutsideFooterEnabled, so a screen that wants to
-    // hit-test raw taps itself (see loopOptions()) can turn zone-reading off without losing the footer.
-    if (t.y <= tftHeight && !touchZoneOutsideFooterEnabled) return;
-
     if (t.x > third_x * 0 && t.x < third_x * 1) PrevPress = true;
-    if (t.x > third_x * 1 && t.x < third_x * 2 && ((t.y > third_y && t.y < third_y * 2) || t.y > tftHeight))
-        SelPress = true;
+    if (t.x > third_x * 1 && t.x < third_x * 2 && (t.y > third_y && t.y < third_y * 2)) SelPress = true;
     if (t.x > third_x * 2 && t.x < third_x * 3 && t.y > third_y) NextPress = true;
     if (t.x > third_x * 2 && t.x < third_x * 3 && t.y < third_y) EscPress = true;
     if (t.x > third_x * 1 && t.x < third_x * 2 && t.y < third_y) UpPress = true;
     if (t.x > third_x * 1 && t.x < third_x * 2 && t.y > third_y * 2 && t.y < third_y * 3) DownPress = true;
-    /*
-                        Touch area Map
-                ________________________________ 0
-                |         |   UP    |   Esc   |
-                |         |_________|_________|_> third_y
-                |         |   Sel   |         |
-                |  Prev   |_________|  Next   |_> third_y*2
-                |         |  Down   |         |
-                |_________|_________|_________|_> third_y*3
-                |__Prev___|___Sel___|__Next___| 20 pixel touch area where the touchFooter is drawn
-                0         L third_x |         |
-                                    Lthird_x*2|
-                                              Lthird_x*3
-    */
 }
 
 #endif

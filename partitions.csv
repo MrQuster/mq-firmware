@@ -1,0 +1,25 @@
+# MQ Firmware 4 MB dual-application layout (ESP32-2432S028 CYD)
+#
+# 0x0000 - 0x0FFF  bootloader reserved (esptool writes the bootloader at 0x1000)
+# 0x8000 - 0x8FFF  partition table
+# 0x9000 - 0xAFFF  otadata (8 KiB, two 4 KiB sectors)
+# 0x10000 - 0xFFFFF factory : MQ Recovery / Updater (960 KiB)
+# 0x100000 - 0x3BFFFF ota_0  : MQ main application (2.75 MiB)
+# 0x3C0000 - 0x3CFFFF nvs    : Preferences, Wi-Fi, lock, Qubi (64 KiB)
+# 0x3D0000 - 0x3FFFFF spiffs : LittleFS (192 KiB, unchanged offset/size)
+#
+# The factory partition holds the immutable USB recovery image; the main
+# firmware always runs from ota_0 so a normal OTA update only rewrites that
+# slot.  nvs and LittleFS live after the last application image so that a full
+# USB flash (bootloader + table + recovery + main) never spans them.
+#
+# 960 KiB factory keeps ota_0 at 2.75 MiB: the current main image uses
+# 2,572,224 B of 2,883,584 B, leaving 10.8 % free.  A 1 MiB factory would drop
+# ota_0 to 2.6875 MiB and leave only 8.7 % headroom.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+otadata,    data, ota,      0x9000,   0x2000,
+factory,    app,  factory,  0x10000,  0xF0000,
+ota_0,      app,  ota_0,    0x100000, 0x2C0000,
+nvs,        data, nvs,      0x3C0000, 0x10000,
+spiffs,     data, spiffs,   0x3D0000, 0x30000,

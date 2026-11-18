@@ -11,5 +11,4 @@ enum MQSoundEvent {
 
 void mqPlaySound(MQSoundEvent ev);
 void mqShowGpioMonitor();
-void mqShowIdleMascot();
 void mqCheckUpdates();

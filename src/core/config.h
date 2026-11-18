@@ -19,7 +19,7 @@ enum EvilPortalPasswordMode { FULL_PASSWORD = 0, FIRST_LAST_CHAR = 1, HIDE_PASSW
 
 // How the main menu presents the modules:
 // CAROUSEL shows one big icon at a time, GRID exposes every module as a selectable cell
-enum MainMenuStyle { MAIN_MENU_CAROUSEL = 0, MAIN_MENU_GRID = 1 };
+enum MainMenuStyle { MAIN_MENU_CAROUSEL = 0, MAIN_MENU_GRID = 1, MAIN_MENU_LIST = 2 };
 
 class BruceConfig : public BruceTheme {
 public:
@@ -98,7 +98,7 @@ public:
     int devMode = 0;
 
     int colorInverted = DEFAULT_COLOR_INVERTED;
-    int mainMenuStyle = MAIN_MENU_CAROUSEL;
+    int mainMenuStyle = MAIN_MENU_LIST;
     int badUSBBLEKeyboardLayout = 0;
     uint16_t badUSBBLEKeyDelay = 10;
     bool badUSBBLEShowOutput = true;
